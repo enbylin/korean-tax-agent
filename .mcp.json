@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "korean-law": {
-      "type": "sse",
+      "type": "http",
       "url": "https://korean-law-mcp.fly.dev/mcp"
     }
   }

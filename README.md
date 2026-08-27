@@ -68,8 +68,10 @@ cp -r korean-tax-agent/skills/tax ~/.claude/skills/
 그리고 MCP 서버를 직접 등록합니다 (프로젝트 또는 사용자 스코프):
 
 ```bash
-claude mcp add korean-law --transport sse https://korean-law-mcp.fly.dev/mcp
+claude mcp add korean-law --transport http https://korean-law-mcp.fly.dev/mcp
 ```
+
+서버는 Streamable HTTP(stateless) 방식이며, API 키나 로컬 DB는 필요 없습니다.
 
 ## 사용법
 
