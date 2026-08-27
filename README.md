@@ -8,7 +8,7 @@
 설치하면 바로 동작합니다.
 
 ```
-> /tax-consult 프리랜서에게 3.3% 원천징수했는데 매일 출근시키면 근로소득으로 재분류되나요?
+> /tax 프리랜서에게 3.3% 원천징수했는데 매일 출근시키면 근로소득으로 재분류되나요?
 ```
 
 ## 특징
@@ -30,8 +30,8 @@
 | 적합한 질문 | 기한·세율·요건 확인, 일반 설명 | 복합 쟁점, 해석 대립, 고액 리스크, 과거 과세기간 판단 |
 
 ```
-> /tax-consult 부가세 예정신고 기한 언제야?                  # easy로 충분
-> /tax-consult hard 가지급금 인정이자 익금산입과 소득처분 리스크 검토해줘   # 정밀 검토
+> /tax 부가세 예정신고 기한 언제야?                  # easy로 충분
+> /tax hard 가지급금 인정이자 익금산입과 소득처분 리스크 검토해줘   # 정밀 검토
 ```
 
 hard 모드는 원본 파이프라인의 4단계를 그대로 재현합니다:
@@ -41,7 +41,7 @@ hard 모드는 원본 파이프라인의 4단계를 그대로 재현합니다:
 3. **FactCheck** — 근거의 강도·충돌·공백 분석, 인용 실존 검증, 보충검색 지시 (1회)
 4. **Answer Generation** — 질문 복잡도에 맞춘 검토의견서 작성
 
-각 단계의 상세 방법론은 [`skills/tax-consult/references/`](skills/tax-consult/references/)에
+각 단계의 상세 방법론은 [`skills/tax/references/`](skills/tax/references/)에
 전부 공개되어 있습니다.
 
 ## 설치
@@ -55,14 +55,14 @@ Claude Code 안에서:
 /plugin install korean-tax-agent@korean-tax-agent
 ```
 
-플러그인이 켜지면 korean-law MCP 서버가 자동 등록되고 `/tax-consult` 스킬을 쓸 수
+플러그인이 켜지면 korean-law MCP 서버가 자동 등록되고 `/tax` 스킬을 쓸 수
 있습니다.
 
 ### 방법 2 — 스킬 수동 설치
 
 ```bash
 git clone https://github.com/freeforeverybody/korean-tax-agent.git
-cp -r korean-tax-agent/skills/tax-consult ~/.claude/skills/
+cp -r korean-tax-agent/skills/tax ~/.claude/skills/
 ```
 
 그리고 MCP 서버를 직접 등록합니다 (프로젝트 또는 사용자 스코프):
@@ -74,7 +74,7 @@ claude mcp add korean-law --transport sse https://korean-law-mcp.fly.dev/mcp
 ## 사용법
 
 ```
-/tax-consult [easy|hard] <세무 질문>
+/tax [easy|hard] <세무 질문>
 ```
 
 - 모드를 생략하면 easy로 동작하고, 질문이 복합 쟁점이면 답변 말미에 hard 모드를 권합니다.
@@ -91,7 +91,7 @@ korean-tax-agent/
 │   └── marketplace.json      # 마켓플레이스 정의
 ├── .mcp.json                 # korean-law MCP 서버 (플러그인 설치 시 자동 등록)
 └── skills/
-    └── tax-consult/
+    └── tax/
         ├── SKILL.md          # 오케스트레이터 — 모드 라우팅, 실행 규칙
         └── references/       # 단계별 방법론 (hard 모드 서브에이전트의 시스템 프롬프트)
             ├── query-analysis.md
@@ -125,10 +125,10 @@ korean-tax-agent/
 
 ## 면책
 
-본 스킬의 답변은 AI가 공개 법령정보를 검색해 작성한 **참고 의견**이며, 세무대리인의
-검토를 대체하지 않습니다. 실제 신고·처분 대응 전 반드시 세무사·회계사와 상담하세요.
-답변의 정확성·완전성은 보장되지 않으며, 이를 근거로 한 의사결정의 책임은 사용자에게
-있습니다.
+본 스킬의 답변은 AI가 공개 법령정보를 검색해 작성한 참고 의견이며, 세무대리인의
+검토를 대체하지 않습니다. 실제 신고·처분 대응 전 반드시 회계사 또는 세무사와
+상담하세요. 답변의 정확성·완전성은 보장되지 않으며, 이를 근거로 한 의사결정의
+책임은 사용자에게 있습니다.
 
 ## 라이선스
 
