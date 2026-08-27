@@ -1,0 +1,14 @@
+{
+  "name": "korean-tax-agent",
+  "owner": {
+    "name": "freeforeverybody"
+  },
+  "plugins": [
+    {
+      "name": "korean-tax-agent",
+      "source": "./",
+      "description": "한국 세법 AI 검토 스킬 — 법령·판례·예규 실시간 검색 기반 세무 검토의견 작성 (easy/hard 모드)",
+      "version": "1.0.0"
+    }
+  ]
+}

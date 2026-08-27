@@ -1,0 +1,13 @@
+{
+  "name": "korean-tax-agent",
+  "description": "한국 세법 AI 검토 스킬 — korean-law-mcp로 법령·판례·예규를 실시간 검색해 근거 기반 세무 검토의견을 작성한다. easy(빠른 검토) / hard(4단계 정밀 파이프라인) 모드 지원.",
+  "version": "1.0.0",
+  "author": {
+    "name": "freeforeverybody",
+    "email": "pminsu95@gmail.com"
+  },
+  "homepage": "https://github.com/freeforeverybody/korean-tax-agent",
+  "repository": "https://github.com/freeforeverybody/korean-tax-agent",
+  "license": "MIT",
+  "keywords": ["korean-tax", "세무", "세법", "tax", "korean-law", "mcp"]
+}
