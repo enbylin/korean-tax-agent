@@ -13,8 +13,14 @@
 
 ## 특징
 
-- **실시간 법령 검색** — [korean-law-mcp](https://korean-law-mcp.fly.dev/mcp)를 통해
-  법제처 국가법령정보센터의 현행 법령·판례·국세청 유권해석·조세심판 결정례를 검색
+- **두 개의 MCP를 용도별로 엮음** — 세법 그래프 DB
+  ([korea-tax-law-mcp](https://github.com/minsooparkk/korea-tax-law-mcp))와
+  법제처 실시간 API([korean-law-mcp](https://korean-law-mcp.fly.dev/mcp)).
+  둘 다 플러그인 설치 시 자동 등록됩니다
+- **조문 본문 검색** — "대손세액공제" 같은 키워드로 조문 **본문**을 직접 검색.
+  법령명을 몰라도 찾습니다
+- **유권해석 본문** — 국세청 질의회신 13만건의 질의요지·회신을 본문까지 조회
+- **조세조약** — 107개국 조약 조문(국문·영문)과 그 조문을 개정한 의정서까지
 - **근거 기반 답변** — 모든 법적 판단에 조문번호·판례번호 인용, 말미에 출처 링크 목록
 - **환각 방지 설계** — 검색으로 확인한 근거만 인용, 확정 단언 금지, 반대 근거 병기 의무
 - **적용시점 판단** — 경정청구·과거 과세기간 질문은 그 시점에 시행 중이던 법령으로 판단
@@ -51,23 +57,24 @@ hard 모드는 원본 파이프라인의 4단계를 그대로 재현합니다:
 Claude Code 안에서:
 
 ```
-/plugin marketplace add freeforeverybody/korean-tax-agent
+/plugin marketplace add minsooparkk/korean-tax-agent
 /plugin install korean-tax-agent@korean-tax-agent
 ```
 
-플러그인이 켜지면 korean-law MCP 서버가 자동 등록되고 `/tax` 스킬을 쓸 수
+플러그인이 켜지면 두 MCP 서버(korea-tax-law·korean-law)가 자동 등록되고 `/tax` 스킬을 쓸 수
 있습니다.
 
 ### 방법 2 — 스킬 수동 설치
 
 ```bash
-git clone https://github.com/freeforeverybody/korean-tax-agent.git
+git clone https://github.com/minsooparkk/korean-tax-agent.git
 cp -r korean-tax-agent/skills/tax ~/.claude/skills/
 ```
 
 그리고 MCP 서버를 직접 등록합니다 (프로젝트 또는 사용자 스코프):
 
 ```bash
+claude mcp add korea-tax-law --transport http https://mcp.taxjarvis.com/mcp
 claude mcp add korean-law --transport http https://korean-law-mcp.fly.dev/mcp
 ```
 
@@ -91,7 +98,7 @@ korean-tax-agent/
 ├── .claude-plugin/
 │   ├── plugin.json           # 플러그인 매니페스트
 │   └── marketplace.json      # 마켓플레이스 정의
-├── .mcp.json                 # korean-law MCP 서버 (플러그인 설치 시 자동 등록)
+├── .mcp.json                 # MCP 서버 2종 (플러그인 설치 시 자동 등록)
 └── skills/
     └── tax/
         ├── SKILL.md          # 오케스트레이터 — 모드 라우팅, 실행 규칙
@@ -104,15 +111,44 @@ korean-tax-agent/
 
 ## 데이터 소스
 
-[korean-law-mcp](https://korean-law-mcp.fly.dev/mcp)는 법제처 국가법령정보센터
-공개 API를 프록시하는 MCP 서버입니다. 이 스킬이 사용하는 주요 도구:
+두 MCP는 겹치는 게 아니라 **상호보완**입니다. 스킬이 용도별로 라우팅합니다.
+
+### korea-tax-law — 세법 그래프 DB ([리포](https://github.com/minsooparkk/korea-tax-law-mcp))
+
+국세·지방세 60개 법령, 판례·조세심판원 결정례 15.3만건, 국세청·법제처·행정안전부
+해석례 14.8만건, 107개국 조세조약 조문을 Neo4j에 적재해 **본문까지** 검색합니다.
 
 | 도구 | 용도 |
 |---|---|
-| `search_law` / `get_law_text` | 법령 검색·조문 원문 조회 (세법·비세법 모두) |
-| `search_decisions` / `get_decision_text` | 판례·국세청 유권해석·조세심판·법령해석례 검색·전문 조회 |
-| `get_annexes` | 별표·서식 조회 (기준금액·세율표) |
-| `legal_analysis` | 특정 시점 시행 법령 조회(행위시법), 인용 실존 검증 |
+| `search_articles` / `get_article` | 조문 본문 풀텍스트 검색 · 원문 + 위임 하위법령 |
+| `get_article_history` | 조문 개정 연혁 |
+| `search_cases` | 판례·조세심판원 결정례 |
+| `search_interpretations` | 국세청·법제처·행안부 해석례 (**본문 포함**) |
+| `list_treaties` / `search_treaties` / `get_treaty_article` | 조세조약 조문 + 개정의정서 |
+
+### korean-law — 법제처 실시간 API
+
+전체 법령·자치법규·행정규칙과 18개 도메인 결정례를 실시간 조회합니다.
+
+| 도구 | 용도 |
+|---|---|
+| `search_law` / `get_law_text` | 비세법 법령 검색·조문 조회, **시행예정 개정 병기** |
+| `get_annexes` | 별표·서식 (기준금액·세율표) |
+| `legal_analysis` | 특정 시점 시행 법령(행위시법), 인용 실존 검증 |
+| `get_decision_text` | 판례 전문 조회 |
+
+### 왜 둘 다 필요한가
+
+korean-law만으로는 안 되는 것:
+- 조문 **본문** 키워드 검색 — `search_law`는 법령명을 찾습니다. "대손세액공제"는 0건입니다
+- 국세청 해석례 **본문** — 법제처 OpenAPI가 목록만 제공해, 본문 조회는 지원되지 않습니다
+- 조세조약 **조문 본문** — 메타데이터와 링크까지입니다
+
+korea-tax-law만으로는 안 되는 것:
+- 세법 60개 밖의 법령 (비세법·조례·행정규칙)
+- 별표·서식
+- 시행예정 개정, 특정 과거 시점의 시행 본문
+- 인용 실존 검증
 
 ## 원본 프로젝트와의 차이
 
@@ -121,9 +157,9 @@ korean-tax-agent/
 
 | | taxjarvis.com | korean-tax-agent (이 저장소) |
 |---|---|---|
-| 세법 DB | 전용 Neo4j Graph DB (23개 세법 조문·판례·예규 적재, 관계 기반 탐색) | korean-law-mcp 실시간 검색 |
+| 세법 DB | 전용 Neo4j Graph DB (웹앱 UX·전용 적재 파이프라인 포함) | 같은 DB를 읽는 공개 MCP + 법제처 실시간 API |
 | 실행 | 전용 파이프라인 서버 | Claude Code 스킬 + 서브에이전트 |
-| 답변 품질 | 그래프 관계 탐색·조문 시점 버전 관리로 더 정밀 | 공개 API 검색 범위 내 |
+| 답변 품질 | 그래프 관계 탐색·조문 시점 버전 관리로 더 정밀 | 공개 MCP가 노출하는 도구 범위 내 |
 
 ## 면책
 

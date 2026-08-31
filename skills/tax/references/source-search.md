@@ -2,7 +2,7 @@
 
 ## 역할
 
-세무 질문에 대한 법적 근거를 **korean-law-mcp로 정밀하게 탐색**하여, 쟁점별로
+세무 질문에 대한 법적 근거를 **korea-tax-law·korean-law 두 MCP로 정밀하게 탐색**하여, 쟁점별로
 **왜 이 근거가 필요한지** 설명 가능한 형태로 반환하는 검색 전문 단계.
 
 ---
@@ -26,42 +26,76 @@
 
 ---
 
-## 2. korean-law-mcp 도구 사용법
+## 2. 도구 사용법 — 두 MCP 라우팅
 
-모든 검색은 korean-law-mcp 도구로 수행한다. 도구 이름은 클라이언트에 따라
+검색은 **korea-tax-law**(세법 그래프 DB)와 **korean-law**(법제처 실시간 API) 두
+서버로 나눠 수행한다. 도구는 `mcp__korea-tax-law__<도구명>`,
 `mcp__korean-law__<도구명>` 형태로 노출된다.
+
+**원칙: 세법 안의 일은 korea-tax-law부터.** 조문 본문 키워드 검색, 해석례 본문,
+조약 조문은 korea-tax-law에서만 된다. korean-law는 세법 밖·별표·시행예정·특정
+시점 본문·인용 검증을 맡는다.
+
+### 2-A. korea-tax-law (세법 그래프 DB)
 
 | 무엇을 찾나 | 도구 | 사용법 |
 |---|---|---|
-| 법령 식별자 확보 | `search_law` | 법령명 키워드 → `mst`/`lawId` 획득. 조문 조회 전 필수 |
-| 조문 원문 | `get_law_text` | `mst` + `jo`("제148조의2" 같은 자연어 표기 그대로). `efYd`로 특정 시행일자 본문 |
-| 판례 | `search_decisions` domain=`precedent` | 키워드 검색. 본문까지 필요하면 `options.includeText=true` |
-| 국세청 유권해석 | `search_decisions` domain=`nts` | 국세청 직접 회신 해석 (서면-, 사전- 등) |
-| 조세심판 결정례 | `search_decisions` domain=`tax_tribunal` | 조세심판원 결정 |
-| 법제처 해석례 | `search_decisions` domain=`interpretation` | 법령해석례 |
-| 결정례 전문 | `get_decision_text` | `domain` + `id` (search 결과에서 획득) |
-| 별표·서식 | `get_annexes` | 기준금액·세율표·서식은 별표에 있는 경우가 많다 |
-| 특정 시점 시행 법령 | `legal_analysis` mode=`applicable_law` | `lawName`+`date`(+`jo`) → 그 시점 시행 본문 + 부칙 경과조치 |
-| 복합 리서치 | `legal_research` | 단일 조회로 안 될 때만. task=`dispute_prep` domain=`tax`는 불복 준비용 |
+| 수록 법령 확인 | `list_laws` | 국세·지방세 60개 법령과 시행일. 검색 전 수록 여부 확인용 |
+| 조문 검색 | `search_articles` | **조문 본문 풀텍스트**. 키워드는 조사 없는 명사 위주("이월과세 배우자"). `law_name`으로 법령 한정 |
+| 조문 원문 | `get_article` | `law_name` + `article_number`("제97조의2"·"97조의2"·"97" 모두 가능). **위임 하위법령 조문까지 함께 온다** |
+| 조문 개정 연혁 | `get_article_history` | "언제 바뀌었나" — 버전 이력·개정 표기 |
+| 판례·심판례 | `search_cases` | 대법원·고등법원·헌재·조세심판원 15.3만건. 단일 핵심 키워드가 정확하다 |
+| 유권해석 | `search_interpretations` | 국세청 13만·법제처 8.7천·행안부 3.3천건. **질의요지·회신 본문이 함께 온다** |
+| 조약 체결 현황 | `list_treaties` | 체결국 목록 / `country` 지정 시 그 나라 협약·의정서 이력과 부속문서 |
+| 조약 조문 검색 | `search_treaties` | 제한세율·고정사업장·사용료 등. `country`로 한정 가능 |
+| 조약 조문 원문 | `get_treaty_article` | 국문 + 영문. **그 조문을 개정한 의정서를 발췌까지 붙여 준다** |
+
+### 2-B. korean-law (법제처 실시간 API)
+
+| 무엇을 찾나 | 도구 | 사용법 |
+|---|---|---|
+| 별표·서식 | `get_annexes` | 기준금액·세율표는 별표에 있는 경우가 많다. **korea-tax-law에 없는 기능** |
+| 시행예정 개정 | `search_law` | 법령명 검색 시 시행예정본을 자동 병기. **korea-tax-law는 현행만 안다** |
+| 특정 시점 시행 본문 | `legal_analysis` mode=`applicable_law` | `lawName`+`date`(+`jo`) → 그 시점 본문 + 부칙 경과조치 |
+| 비세법·조례·행정규칙 | `search_law` → `get_law_text` | `mst`+`jo`. korea-tax-law는 세법 60개 밖은 0건이다 |
+| 판례 전문 | `get_decision_text` domain=`precedent` | 사건번호로 찾은 판례의 판시사항·판결요지 전문 |
+| 인용 검증 | `legal_analysis` mode=`verify_citations` | 작성한 답변의 조문·판례 인용이 실존하는지 교차검증 |
+| 복합 리서치 | `legal_research` | 단일 조회로 안 될 때만 |
+
+**korean-law로 대체되지 않는 것** (착각하면 근거가 빈다):
+- 국세청 해석례 **본문** — `search_decisions(domain='nts')`는 목록·링크만 준다.
+  `get_decision_text`는 "법제처 OPEN API가 본문 조회를 제공하지 않는다"고 거부한다.
+- 조세조약 **조문 본문** — 조약 메타데이터와 law.go.kr 링크까지다.
+- 조문 본문 키워드 검색 — `search_law`는 **법령명**을 찾는다. "대손세액공제"로
+  검색하면 0건이 나온다.
 
 ### 2-1. 탐색 절차
 
 ```
-Step 1: search_intents.law의 각 조문 — search_law로 법령 식별자 확보
-        → get_law_text(mst, jo)로 조문 원문 조회
-Step 2: 조문이 "대통령령으로 정하는"을 담고 있으면 해당 시행령 조문까지 조회 (위임 추적)
-Step 3: search_intents.ruling — search_decisions(domain='nts')로 유권해석 검색,
-        필요시 domain='interpretation' 병행
-Step 4: search_intents.case — search_decisions(domain='precedent')로 판례 검색,
-        처분 불복·사실인정 쟁점은 domain='tax_tribunal' 병행
-Step 5: search_intents.nontax_law — 같은 방식 (search_law → get_law_text).
-        비세법도 도구는 동일하다
-Step 6: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
+Step 1: search_intents.law의 각 조문
+        → korea-tax-law: get_article(law_name, article_number)
+          (조문 번호를 모르면 search_articles로 먼저 찾는다)
+Step 2: 위임 추적 — get_article 응답의 "위임 하위법령 조문"을 그대로 따라간다.
+        korea-tax-law가 이미 이어 주므로 별도 검색이 필요 없다
+Step 3: search_intents.ruling
+        → korea-tax-law: search_interpretations (본문까지 여기서 온다)
+Step 4: search_intents.case
+        → korea-tax-law: search_cases (판례·조세심판원이 한 도구에 함께 있다)
+          리딩케이스 전문이 필요하면 korean-law: get_decision_text로 보강
+Step 5: 비거주자·외국법인 쟁점이면
+        → korea-tax-law: list_treaties(country) → get_treaty_article
+          국내법 조문과 조약 조문을 **함께** 확보한다 (조약이 우선한다)
+Step 6: search_intents.nontax_law
+        → korean-law: search_law → get_law_text
+Step 7: 세율·한도·기준금액이 별표 위임이면 → korean-law: get_annexes
+Step 8: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
 ```
 
-- 서로 독립인 검색(다른 법령, 다른 도메인)은 **병렬로 호출**해 시간을 아낀다.
+- 서로 독립인 검색(다른 법령, 다른 서버)은 **병렬로 호출**해 시간을 아낀다.
 - 검색 결과가 0건이면 키워드를 한 단계 일반화해 1회 재시도한다. 그래도 없으면
   `coverage_gaps`에 기록하고 넘어간다 — 무한 재검색 금지.
+- korea-tax-law에서 0건이면 `list_laws`로 **수록 법령인지** 먼저 확인한다.
+  미수록 법령이면 korean-law로 넘어간다.
 
 ### 2-2. 탐색 범위 제한 규칙
 
@@ -94,8 +128,10 @@ Step 6: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
 **검증 기준**: 조문의 **본문 내용**이 쟁점과 직접 관련되어야 한다. 조문 제목에 관련 단어가 있더라도 본문이 무관하면 제외한다.
 
 **원문 확보 기준**:
-- 법령 근거는 `get_law_text`로 받은 적용 조항 원문을 `original_text`에 포함한다.
-- 기준금액·세율표가 "별표"로 위임되어 있으면 `get_annexes`로 별표 본문까지 확인한다.
+- 법령 근거는 `korea-tax-law: get_article`(세법) 또는 `korean-law: get_law_text`(비세법)로
+  받은 적용 조항 원문을 `original_text`에 포함한다.
+- 기준금액·세율표가 "별표"로 위임되어 있으면 `korean-law: get_annexes`로 별표 본문까지
+  확인한다. korea-tax-law에는 별표가 없다.
 - 조문 원문을 확보하지 못한 법령은 high-confidence 근거로 반환하지 않고, `coverage_gaps`와 `missing_original_text`에 사유를 기록한다.
 
 ### 3-1-A. 적용시점 — 조건부
@@ -106,7 +142,9 @@ Step 6: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
 - `legal_analysis` mode=`applicable_law`에 `lawName` + `date`(= `timing.as_of`) +
   `jo`를 넘기면 **그 시점에 시행 중이던 조문 본문과 부칙 경과조치**를 준다.
   이것이 1차 경로다.
-- 특정 시행일자 본문만 필요하면 `get_law_text`의 `efYd`(YYYYMMDD)로도 조회할 수 있다.
+- 특정 시행일자 본문만 필요하면 `korean-law: get_law_text`의 `efYd`(YYYYMMDD)로도 조회할
+  수 있다. korea-tax-law는 현행 본문만 주고, 과거 변화는 `get_article_history`로
+  "언제 바뀌었는지"까지만 알려준다 — 그 시점 본문 자체는 korean-law로 확인한다.
 
 **매번 돌리지 않는다.** 부칙은 조문 대비 40~60% 분량이라 무조건 끌어오면 근거 예산을
 잠식하고, 30년 전 적용례가 현행 근거로 딸려온다. 게이트 기준은 `query-analysis.md` §5.
@@ -139,7 +177,9 @@ Step 6: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
 - 해당 사안에서의 **구체적 적용 결과**
 - **사실관계 요약** (사용자 사안과의 비교 가능하도록)
 
-리딩케이스로 인용할 판례는 `get_decision_text`로 판시사항·판결요지를 실제로 확인한다.
+판례 검색은 `korea-tax-law: search_cases`가 1차다 — 판례·조세심판원 결정례가 한 도구에
+있고 요지가 함께 온다. 리딩케이스로 인용할 판례는 전문까지 필요하면
+`korean-law: get_decision_text`(domain=`precedent`)로 판시사항·판결요지를 확인한다.
 검색 목록의 제목만 보고 인용하지 않는다.
 
 ### 3-4. 비세법 법령(nontax_law)
@@ -177,7 +217,7 @@ Step 6: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
   "original_text_scope": "full_article",
   "possible_mismatch": "",
   "source_url": "https://www.law.go.kr/법령/소득세법/제20조",
-  "search_path": "search_law('소득세법') → get_law_text(jo='제20조')"
+  "search_path": "korea-tax-law: search_articles('근로소득 범위') → get_article('소득세법', '제20조')"
 }
 ```
 

@@ -1,13 +1,21 @@
 ---
 name: tax
-description: 한국 세법 질문에 대해 korean-law-mcp로 법령·판례·예규를 실시간 검색하고 근거 기반 검토의견을 작성한다. 세무 상담, 세금 질문, 과세 여부 판단, 소득구분, 양도세, 증여세, 상속세, 법인세, 부가세, 원천징수, 세액공제, 경정청구, 가산세, 세무 리스크 분석 등 모든 세무·세법 관련 질문에 사용한다. "세금이 얼마야", "이거 과세돼?", "공제받을 수 있어?", "세무 리스크가 뭐야" 같은 질문에도 트리거한다. 세무와 무관한 회계 장부 작성·재무제표 분석에는 트리거하지 않는다.
+description: 한국 세법 질문에 대해 세법 그래프 DB와 법제처 실시간 API를 함께 검색해 법령·판례·예규·조세조약 근거로 검토의견을 작성한다. 세무 상담, 세금 질문, 과세 여부 판단, 소득구분, 양도세, 증여세, 상속세, 법인세, 부가세, 원천징수, 세액공제, 경정청구, 가산세, 세무 리스크 분석 등 모든 세무·세법 관련 질문에 사용한다. "세금이 얼마야", "이거 과세돼?", "공제받을 수 있어?", "세무 리스크가 뭐야" 같은 질문에도 트리거한다. 세무와 무관한 회계 장부 작성·재무제표 분석에는 트리거하지 않는다.
 argument-hint: "[easy|hard] [세무 질문]"
 ---
 
 # 세무 검토 (tax)
 
-한국 세법 질문을 받아 **korean-law-mcp**(법제처 국가법령정보 기반)로 법령·판례·
-예규·심판례를 실시간 검색하고, 근거 기반 검토의견을 작성한다.
+한국 세법 질문을 받아 **두 개의 MCP**로 법령·판례·예규·조세조약을 검색하고,
+근거 기반 검토의견을 작성한다.
+
+| MCP | 무엇 | 언제 쓰나 |
+|---|---|---|
+| **korea-tax-law** (`mcp__korea-tax-law__*`) | 국세·지방세 60개 법령 조문, 판례·심판례 15만, 국세청·법제처·행안부 해석례 14.8만, 조세조약 조문 3천 — **본문까지 그래프 DB에 적재** | 세법 안의 일이면 여기부터. 조문 본문 키워드 검색·해석례 본문·조약 조문은 여기서만 된다 |
+| **korean-law** (`mcp__korean-law__*`) | 법제처 국가법령정보 실시간 API. 전체 법령·자치법규·행정규칙·별표·18개 도메인 결정례 | 세법 밖, 별표·서식, 시행예정 개정, 특정 시점 시행본, 인용 검증 |
+
+한쪽이 다른 쪽의 상위 호환이 아니다. **용도가 갈린다** — §2와
+`references/source-search.md` §2의 라우팅 표를 따른다.
 
 사용자 입력: $ARGUMENTS
 
@@ -16,9 +24,14 @@ argument-hint: "[easy|hard] [세무 질문]"
 - **경로 확인**: 이 SKILL.md와 같은 폴더의 `references/`에 단계별 지침이 있다.
   아래에서 "references/…"는 항상 이 스킬 폴더 기준 **절대경로로 풀어서** 사용한다
   (서브에이전트에 넘길 때 특히).
-- **MCP 확인**: korean-law-mcp 도구(`mcp__korean-law__search_law` 등)가 보이지
-  않으면 검색을 진행하지 말고, MCP 서버 설정이 필요하다고 안내한다
-  (README의 설치 안내 참조). **자체 지식만으로 세법 답변을 만들지 않는다.**
+- **MCP 확인**: 두 서버의 도구가 보이는지 확인한다
+  (`mcp__korea-tax-law__search_articles`, `mcp__korean-law__search_law`).
+  - 둘 다 없으면 검색을 진행하지 말고 MCP 설정이 필요하다고 안내한다 (README 참조).
+  - **korea-tax-law만 있으면** 그대로 진행하되, 별표·시행예정·비세법이 필요한
+    대목에서 "해당 정보는 확인하지 못했다"고 답변에 명시한다.
+  - **korean-law만 있으면** 진행하되, 국세청 해석례 본문과 조세조약 조문은 링크
+    안내까지만 가능하다는 점을 답변에 명시한다.
+  - **자체 지식만으로 세법 답변을 만들지 않는다.**
 
 ## 1. 모드 결정
 
@@ -35,11 +48,26 @@ argument-hint: "[easy|hard] [세무 질문]"
 
 메인 컨텍스트에서 직접 수행한다. 별도 분석·검증 단계 없이 **검색 → 답변** 두 걸음.
 
-1. **검색**: 질문에서 적용 조문·쟁점 키워드를 뽑아 korean-law-mcp로 검색한다.
-   - 법령: `search_law`(법령명) → `get_law_text`(mst, jo="제N조") — 조문 원문 확보
-   - 판례가 필요하면: `search_decisions` domain=`precedent`
-   - 유권해석이 필요하면: `search_decisions` domain=`nts`
-   - 기준금액·세율표는 별표에 있는 경우가 많다: `get_annexes`
+1. **검색**: 질문에서 적용 조문·쟁점 키워드를 뽑아 아래 라우팅대로 검색한다.
+
+   | 찾는 것 | 도구 |
+   |---|---|
+   | 세법 조문 (키워드만 앎) | `korea-tax-law: search_articles` → `get_article` |
+   | 세법 조문 (법령명·조번호 앎) | `korea-tax-law: get_article` — 위임 하위법령까지 함께 온다 |
+   | 조문 개정 연혁 | `korea-tax-law: get_article_history` |
+   | 판례·조세심판원 결정례 | `korea-tax-law: search_cases` |
+   | 국세청·법제처·행안부 해석례 | `korea-tax-law: search_interpretations` |
+   | 조세조약 | `korea-tax-law: search_treaties` / `get_treaty_article` / `list_treaties` |
+   | 별표·서식 (기준금액·세율표) | `korean-law: get_annexes` |
+   | 시행예정 개정 확인 | `korean-law: search_law` |
+   | 특정 시점 시행 본문 | `korean-law: legal_analysis` mode=`applicable_law` |
+   | 비세법·조례·행정규칙 | `korean-law: search_law` → `get_law_text` |
+   | 판례 전문 (사건번호 앎) | `korean-law: get_decision_text` domain=`precedent` |
+
+   - **국세청 해석례 본문은 korea-tax-law에만 있다.** korean-law의
+     `search_decisions(domain='nts')`는 목록·링크만 주고 본문 조회를 지원하지 않는다.
+   - **조세조약 조문 본문도 korea-tax-law에만 있다.** korean-law는 조약 메타데이터와
+     링크까지다.
    - 검색 확장 순서: 직접 적용 조문 → 위임 시행령 → (불명확할 때만) 예규 → (판단
      기준이 판례로 형성된 쟁점만) 판례. 앞에서 충분하면 뒤는 검색하지 않는다.
    - 서로 독립인 검색은 병렬 호출.
@@ -86,7 +114,8 @@ argument-hint: "[easy|hard] [세무 질문]"
   > (후속 라운드면: 직전 문답 맥락도 함께 전달)
 - **[2] Source Search**:
   > `<references 절대경로>/source-search.md`를 Read하고 그 지침을 정확히 따라
-  > korean-law-mcp 도구로 근거를 검색하라. 출력은 지침 §4의 JSON만 반환한다.
+  > korea-tax-law·korean-law 두 MCP 도구로 근거를 검색하라. 지침 §2의 라우팅
+  > 표를 반드시 지킨다. 출력은 지침 §4의 JSON만 반환한다.
   > Query Analysis 결과: <JSON 전문>
 - **[3] FactCheck**:
   > `<references 절대경로>/fact-check.md`를 Read하고 그 지침을 정확히 따라
@@ -121,7 +150,9 @@ argument-hint: "[easy|hard] [세무 질문]"
 
 | 증상 | 대응 |
 |---|---|
-| korean-law-mcp 도구가 안 보임 | MCP 설정 안내 (README 참조). 자체 지식으로 답하지 않는다 |
+| 두 MCP 도구가 모두 안 보임 | MCP 설정 안내 (README 참조). 자체 지식으로 답하지 않는다 |
+| 한쪽 MCP만 보임 | §0 규칙대로 진행하고, 못 채운 정보를 답변에 명시 |
+| korea-tax-law 호출 실패 | 세법 조문·판례는 korean-law로 대체. 해석례 본문·조약 조문은 대체 불가 — 그 한계를 답변에 명시 |
 | MCP 호출 연속 실패 | 2~3회 재시도 후 사용자에게 서버 상태를 알리고 중단 |
 | 검색 0건 | 키워드 일반화 1회 재시도 → 그래도 없으면 답변에 그 한계를 명시 |
 

@@ -33,7 +33,7 @@ why_relevant, key_content, original_text}` 형태다.
 4. **논리 비약 점검**: "정의 조문이 있다 → 따라서 이 사안은 ~이다" 같은 중간 논증
    누락을 note에 명시.
 5. **인용 실존 검증 (선택적)**: 검색 결과에 원문 없이 제목·번호만 있는 조문·판례가
-   섞여 있으면 korean-law-mcp의 `legal_analysis` mode=`verify_citations`로 실존
+   섞여 있으면 `korean-law: legal_analysis` mode=`verify_citations`로 실존
    여부를 교차검증한다. 실존이 확인되지 않은 근거는 strength를 낮추고 note에 기록한다.
 6. **공백 분석 → 보충 요청**: 근거 0개이거나 low-confidence뿐인 쟁점을 식별하고
    `supplement_search`에 구체적 검색 키워드로 요청한다.
