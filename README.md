@@ -3,7 +3,7 @@
 **한국 세법 AI 검토 스킬** — Claude Code에서 세무 질문을 하면, 법제처 국가법령정보를
 실시간 검색해 **조문·판례·예규 근거가 붙은 검토의견**을 작성합니다.
 
-[taxjarvis.com](https://taxjarvis.com)의 세무 검토 파이프라인 방법론을 Claude Code
+[taxdoctorai.com](https://taxdoctorai.com)의 세무 검토 파이프라인 방법론을 Claude Code
 스킬로 경량화한 공개 버전입니다. 로컬 DB·Python 환경·API 키가 전혀 필요 없습니다 —
 설치하면 바로 동작합니다.
 
@@ -152,7 +152,7 @@ korea-tax-law만으로는 안 되는 것:
 
 ## 원본 프로젝트와의 차이
 
-이 스킬은 [taxjarvis.com](https://taxjarvis.com) 파이프라인의 방법론(단계별 지침)을
+이 스킬은 [taxdoctorai.com](https://taxdoctorai.com) 파이프라인의 방법론(단계별 지침)을
 그대로 공개하되, 인프라를 경량화한 것입니다:
 
 | | taxjarvis.com | korean-tax-agent (이 저장소) |
