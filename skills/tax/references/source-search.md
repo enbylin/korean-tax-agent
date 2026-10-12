@@ -147,6 +147,10 @@
   회신을 읽지 못한 해석례는 채택하지 않는다.
 - 집행기준처럼 수십만 자인 행정규칙은 해당 대목을 찾을 수단이 없으면 채택하지 않고
   `coverage_gaps`에 적는다.
+- **조약 조문은 `search_tax` 결과만으로 세율을 적지 않는다.** `treaty` 의도로 온 조문
+  본문은 협약 원문이고, 그 조문을 고친 개정 의정서 안내가 붙지 않는다(스위스 제10조
+  배당은 원문 10%, 2012년 의정서로 5%). `search_tax`는 어느 조문인지 찾는 데만 쓰고,
+  제한세율·요건은 반드시 `get_treaty_article`로 다시 읽어 개정 의정서 발췌를 확인한다.
 
 ### 2-B. 개별 도구
 
@@ -224,7 +228,8 @@ Step 4: 조문이 별표로 위임했으면 → get_annex
 Step 5: timing.at_issue = true면 → §3-1-A (as_of)
         내년 이후 과세기간·개정 예정이 걸리면 → list_upcoming
 Step 6: 비거주자·외국법인 쟁점 또는 search_intents.treaty
-        → list_treaties(country) → get_treaty_article
+        → list_treaties(country) → search_treaties(조문 찾기) → get_treaty_article
+          세율·요건은 get_treaty_article 응답의 개정 의정서 발췌까지 읽고 적는다
           국내법 조문과 조약 조문을 **함께** 확보한다 (조약이 우선한다)
 Step 7: search_intents.nontax_law
         → korean-law: search_law → get_law_text
@@ -481,7 +486,8 @@ Step 8: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
       리딩케이스는 그 뒤 상급심·환송 후 결과를 확인했는가?
 - [ ] 전문검색 히트(`fulltext`)를 본문 확인 없이 채택하지 않았는가? 요지뿐인 자료에
       high를 주지 않았는가?
-- [ ] 세율·한도·기준금액은 조문·별표 원문에서 읽은 숫자인가?
+- [ ] 세율·한도·기준금액은 조문·별표 원문에서 읽은 숫자인가? 조약 제한세율은
+      `get_treaty_article`의 개정 의정서까지 확인한 숫자인가?
 - [ ] `timing.at_issue`가 켜졌다면 `as_of`로 기준일 당시 본문·부칙 적용례를 확인했는가?
       쟁점 대목이 기준일 앞뒤로 개정됐다면 그 개정 부칙의 적용 기준(양도일·증여일·
       취득일)을 사실관계와 대조했는가?

@@ -64,7 +64,7 @@ argument-hint: "[easy|hard] [세무 질문]"
    | 조문이 언제 바뀌었나 | `get_article_history` — 버전별 시행일만 준다 |
    | 내년 이후 과세기간·"앞으로 바뀌나" | 쟁점 조문은 `get_article`의 시행예정 개정 표시, 법령 전체는 `list_upcoming`. 개정 내용 전문은 오지 않으므로, 읽지 못했으면 "○○○○년 ○월 시행 개정이 예정돼 있어 그 시점 조문 확인이 필요하다"까지만 쓴다 |
    | 과거 시점에 시행 중이던 조문·부칙 경과조치 | `search_tax` — `{"search_intents": {"law": ["소득세법 제97조의2"]}, "as_of": "2023-12-31", "limit": 1}`. 당시 본문은 `results[0].as_of_lookup.original_text.text`(`results[0].original_text`는 현행 본문이다), 부칙 적용례는 `as_of_lookup.version.applies_note`. `status`가 `found`가 아니면 확인 못 한 것이다 |
-   | 조세조약 | `list_treaties` → `search_treaties` / `get_treaty_article` |
+   | 조세조약 | `list_treaties` → `search_treaties` → `get_treaty_article`. 제한세율은 반드시 `get_treaty_article`에서 읽는다 — 조문 본문은 협약 원문이고, 뒤에 붙는 개정 의정서 발췌가 현행 세율이다 |
    | 수록 법령인지 확인 | `list_laws` |
    | 세법 밖 법령 (민법·상법 등) | `korean-law: search_law` → `get_law_text` |
 
