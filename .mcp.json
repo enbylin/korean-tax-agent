@@ -2,7 +2,7 @@
   "mcpServers": {
     "korea-tax-law": {
       "type": "http",
-      "url": "https://mcp.taxjarvis.com/mcp"
+      "url": "https://mcp.taxdoctorai.com/mcp"
     },
     "korean-law": {
       "type": "http",

@@ -2,8 +2,9 @@
 
 ## 역할
 
-세무 질문에 대한 법적 근거를 **korea-tax-law·korean-law 두 MCP로 정밀하게 탐색**하여, 쟁점별로
-**왜 이 근거가 필요한지** 설명 가능한 형태로 반환하는 검색 전문 단계.
+세무 질문에 대한 법적 근거를 **택스닥터 세법 MCP(korea-tax-law)로 정밀하게 탐색**하여, 쟁점별로
+**왜 이 근거가 필요한지** 설명 가능한 형태로 반환하는 검색 전문 단계. 세법 밖 법령만
+보조 MCP(korean-law)로 확인한다.
 
 ---
 
@@ -26,76 +27,216 @@
 
 ---
 
-## 2. 도구 사용법 — 두 MCP 라우팅
+## 2. 도구 사용법 — 택스닥터 세법 MCP
 
-검색은 **korea-tax-law**(세법 그래프 DB)와 **korean-law**(법제처 실시간 API) 두
-서버로 나눠 수행한다. 도구는 `mcp__korea-tax-law__<도구명>`,
-`mcp__korean-law__<도구명>` 형태로 노출된다.
+검색은 **korea-tax-law**(택스닥터 세법 그래프 DB, `https://mcp.taxdoctorai.com/mcp`)로
+한다. 서버 이름 없이 적은 도구는 모두 이 서버의 것이다. 도구 접두사는 설치 방식마다
+다르므로(`mcp__korea-tax-law__…`, `mcp__plugin_korean-tax-agent_korea-tax-law__…`,
+`mcp__claude_ai_…__…`) **도구 이름 끝**으로 찾는다.
 
-**원칙: 세법 안의 일은 korea-tax-law부터.** 조문 본문 키워드 검색, 해석례 본문,
-조약 조문은 korea-tax-law에서만 된다. korean-law는 세법 밖·별표·시행예정·특정
-시점 본문·인용 검증을 맡는다.
+**원칙: 쟁점별 자료 수집은 `search_tax`가 1차다.** 출발 조문에서 위임(법률 → 시행령 →
+시행규칙)과 인용 관계를 따라가며 판례·결정례·해석례·별표·부칙 적용근거를 한 번에
+모으고, 결과마다 **어떤 관계로 닿았는지**(graph_paths)와 **DB 원문**, **시점 상태**를
+돌려준다. 개별 도구(§2-B)는 조문 번호를 찾거나 빈 곳을 메울 때 쓴다.
 
-### 2-A. korea-tax-law (세법 그래프 DB)
+### 2-A. 통합 탐색 — `search_tax`
+
+```json
+{
+  "search_intents": { "law": ["소득세법 제97조의2"] },
+  "as_of": "2023-12-31",
+  "limit": 2
+}
+```
+
+**입력**
+
+| 인자 | 내용 |
+|---|---|
+| `search_intents` | 유형별 검색 의도. 유형은 `law`(조문) · `case`(법원 판례) · `tribunal`(조세심판원·국세청 심사·이의·적부 결정례) · `ruling`(예규·해석례) · `treaty`(조세조약) · `annex`(별표·서식). **유형마다 최대 3개, 전체 1~8개** |
+| `as_of` | 선택. `YYYY-MM-DD`. 그 시점에 시행 중이던 조문 버전을 따로 붙여 준다 (§3-1-A). 적용시점이 쟁점이면 조문 줄기 호출에 처음부터 함께 넣는다 |
+| `limit` · `offset` | 한 번에 받을 건수(1~25)와 시작 위치. **바로 읽을 때는 `limit` 1~2** — 아래 "응답 크기" 참조 |
+| `result_set_id` | 다음 쪽을 부를 때 이전 응답의 값을 그대로 넘긴다. 응답의 `next_page.arguments`를 그대로 쓰면 된다 |
+
+- `law` 의도는 **`법령명 제N조` 꼴로, 번호가 확정된 조문만** 넣는다. 그 조문이
+  출발 조문이 된다. 번호 없이 낱말만 넣으면 엉뚱한 조문에서 출발하기 쉽다 —
+  번호를 모르면 §2-B의 `search_articles`로 먼저 확정한다.
+- `ruling`·`case`·`tribunal` 의도는 전문검색어다. 조사 없는 명사 위주로, 사용자
+  사실관계의 핵심 요소를 담는다. 문서번호·사건번호를 넣으면 그 문서를 찾는다.
+
+**응답 크기 — 반드시 관리한다**
+
+결과 1건이 평균 1.5만 자다(원문 최대 12,000자 + 대부분 null인 메타 칸 140여 개).
+`limit` 3이면 5만 자를 넘어 한 번에 읽지 못하는 환경이 많다.
+
+- **바로 읽기**: `limit` 1~2. 출발 조문과 `as_of_lookup`, 문서번호를 찍어 찾은 문서
+  한두 건을 읽을 때.
+- **구간 훑기**: 판례·결정례·해석례 수십 건 중 고를 때는 일부러 `limit` 25로 부른다.
+  응답이 한도를 넘으면 Claude Code가 **파일로 저장하고 경로를 알려 준다.** 그 파일을
+  통째로 Read하지 말고 셸로 목록만 뽑은 뒤, 고른 것만 `get_evidence`로 읽는다.
+
+  ```bash
+  python3 -c '
+  import json,sys
+  d=json.load(open(sys.argv[1]))
+  if isinstance(d,list): d=json.loads(d[0]["text"])   # 도구 결과가 감싸져 저장된 경우
+  for i,r in enumerate(d["results"], d["offset"]):
+      s,t=r["source"],r["original_text"]
+      num=s.get("case_number") or s.get("interp_number") or s.get("source_doc_number") or " ".join(filter(None,[s.get("law_name"),s.get("article_number")]))
+      title=s.get("case_name") or s.get("interp_title") or s.get("ruling_title") or s.get("article_title") or ""
+      date=s.get("ruling_date") or s.get("reply_date") or s.get("enforcement_date") or s.get("promulgation_date") or ""
+      print(i,r["result_group"],r["retrieval_method"],num,date,title[:40],t["total_chars"],r["evidence_type"],r["evidence_id"],sep=" | ")
+  ' <저장된 파일 경로>
+  ```
+
+  (저장 꼴은 환경마다 다를 수 있다. 안 맞으면 파일 앞부분을 보고 맞춘다.)
+- 후보를 가볍게 훑는 것은 §2-B의 `search_interpretations`·`search_cases`(요지만 온다)와
+  `get_article`의 인용 문서 목록으로도 된다. 거기서 고른 문서번호를 `search_tax`
+  의도에 넣어 `limit` 1~2로 원문을 받는 편이 싸다.
+
+**응답 읽는 법**
+
+| 필드 | 뜻 |
+|---|---|
+| `summary.by_type` · `total_results` | 유형별 건수와 전체 건수. **먼저 이것부터 본다**. `basic_rule`은 기본통칙, `applicability_evidence`는 부칙 적용근거 |
+| `results[].result_group` | `seed_articles`(출발 조문) · `delegated_articles`(위임 조문) · `referenced_articles`(참조 조문) · `cases` · `tribunals` · `rulings`(고시·훈령·집행기준 같은 행정규칙) · `interpretations`(해석례) · `applicability_evidence`(부칙). **자료 유형은 이 칸으로 정한다** — 결정례도 `evidence_type`은 `case`로 온다 |
+| `results[].retrieval_method` | `graph` = 조문과 관계로 이어진 자료. `fulltext search` = 검색어가 본문에 있을 뿐인 자료 |
+| `results[].graph_paths` | 출발 조문에서 이 자료까지의 실제 경로(`DELEGATES_TO`, `REFERENCES`, `HAS_CASE`, `HAS_INTERPRETATION`, `HAS_APPLICABILITY_EVIDENCE` …). `search_path`에 그대로 옮긴다 |
+| `results[].source` | 번호·제목·기관·날짜·링크. 채워진 칸만 본다 — 조문은 `law_name`·`article_number`·`enforcement_date`, 판례·결정례는 `case_number`·`court_name`·`ruling_date`·`case_url`, 해석례는 `interp_number`·`reply_org`·`reply_date`·`interp_url`, 행정규칙은 `ruling_title`(제목)·`source_doc_number`(번호 — `ruling_number` 칸에는 제목이 들어 있다)·`ruling_url`, 부칙은 `law_name`·`promulgation_number`·`promulgation_date` |
+| `results[].original_text` | `text`(원문, 12,000자에서 끊긴다), `source_field`(어느 칸의 본문인지), `available_fields`(읽을 수 있는 다른 칸), `kind`(`original` 원문 / `summary_only` 요지만 / `partial_extraction` 일부), `total_chars`, `truncated`, `continuation`(이어 읽기 인자) |
+| `results[].temporal` | `enforcement_date`(조문 시행일), `document_date`(문서 날짜). `temporal_resolution`은 거의 모든 결과가 `unresolved`(또는 `conditions_unresolved` 등)로 온다 — 서버가 "이 문서가 현행 조문에 그대로 적용된다"고 확정해 주지 않는다는 뜻이다. 이 값으로 거르지 말고 **문서 날짜와 조문 개정일을 직접 견준다** |
+| `results[].as_of_lookup` | `as_of`를 줬을 때만. 그 시점 조문 버전 (§3-1-A). `results[].original_text`는 `as_of`를 줘도 **현행 본문**이다 — 과거 본문은 `as_of_lookup.original_text.text`에 있다 |
+| `next_page` | 다음 쪽 호출 인자. 없으면 끝 |
+
+**결과는 묶음 순서로 온다**: 조문(출발 → 위임 → 참조) → 판례 → 심판·결정례 →
+행정규칙 → 해석례 → 부칙. 조문 하나에 참조 조문이 십여 개 딸려 오므로, 조문과
+문서를 한 호출에 섞으면 문서는 뒤쪽에 묻힌다. 그래서 **나눠 부른다**:
+
+1. **조문 줄기** — `law` 의도만(적용시점이 쟁점이면 `as_of`도) 넣어 `limit` 1~2로
+   부른다. 출발 조문을 읽고 `summary.by_type`을 확인한다. 위임·참조 조문은
+   `get_article`이 번호 목록으로 가볍게 주므로, 거기서 쟁점과 닿는 것만 골라 읽는다
+   (하위법령 조문이 `referenced_articles`에 섞여 오기도 하고, 같은 조문이 두 번 오기도 한다).
+2. **조문에 이어진 문서** — 같은 검색 집합에서 `offset`으로 건너뛴다. 시작 위치는
+   **위 묶음 순서대로** 건수를 더해 구한다(`by_type`의 키 순서가 아니다):
+   판례 = `law`, 결정례 = `law + case`, 행정규칙 = `law + case + tribunal`,
+   해석례 = `… + ruling`, 부칙 = `total_results − applicability_evidence`.
+   건수가 많으면 "구간 훑기"로 목록부터 만든다.
+3. **쟁점 키워드 문서** — `ruling`·`case`·`tribunal` 의도만 넣어 따로 부른다. 조문과
+   이어지지 않았지만 사실관계가 닮은 문서를 찾는다. `ruling` 의도는 행정규칙이
+   해석례보다 앞에 오므로, 해석례는 `by_type.ruling`만큼 건너뛰어 읽는다.
+
+**멈춤 기준**: 문서 구간을 전부 읽지 않는다. 목록(번호·제목·날짜)에서 쟁점·사실관계가
+맞는 것만 고르고, 쟁점 하나에 채택 문서 3~5건이면 멈춘다. 닮은 문서가 없으면 없다고
+`coverage_gaps`에 적는다 — 0건이 아니어도 전부 무관하면 "없음"이다.
+
+쟁점(issue)마다 이렇게 부르면 결과를 issue_id에 매핑하기도 쉽다. 서로 독립인 호출은
+병렬로 보낸다.
+
+**근거의 무게**
+
+- `graph`로 온 문서는 조문과 관계가 기록돼 있다는 것까지다. **인용은 적용 확정이
+  아니다** — 문서 작성일과 조문 시행일을 견줘, 그 뒤 조문이 바뀌었으면
+  `possible_mismatch`에 적는다. 세목이 다른 사건이 섞여 오기도 하므로, `graph`여도
+  제목·본문이 쟁점과 무관하면 버린다.
+- `fulltext search`로 온 문서는 검증된 인용이 아니다. 본문을 읽고 쟁점과 실제로
+  맞을 때만 채택한다.
+- `kind: summary_only`는 전문이 없는 요지다. 요지만으로 high-confidence를 주지 않는다.
+- **해석례는 회신을 읽었는지 확인한다.** 기본 본문(`source_field: full_text`)에는
+  질의·사실관계만 있고 회신이 없는 경우가 많다. `available_fields`에 `content`가
+  있으면 `get_evidence(…, source_field: "content")`로 질의요지와 회신을 읽는다.
+  회신을 읽지 못한 해석례는 채택하지 않는다.
+- 집행기준처럼 수십만 자인 행정규칙은 해당 대목을 찾을 수단이 없으면 채택하지 않고
+  `coverage_gaps`에 적는다.
+
+### 2-B. 개별 도구
 
 | 무엇을 찾나 | 도구 | 사용법 |
 |---|---|---|
-| 수록 법령 확인 | `list_laws` | 국세·지방세 60개 법령과 시행일. 검색 전 수록 여부 확인용 |
-| 조문 검색 | `search_articles` | **조문 본문 풀텍스트**. 키워드는 조사 없는 명사 위주("이월과세 배우자"). `law_name`으로 법령 한정 |
-| 조문 원문 | `get_article` | `law_name` + `article_number`("제97조의2"·"97조의2"·"97" 모두 가능). **위임 하위법령 조문까지 함께 온다** |
-| 조문 개정 연혁 | `get_article_history` | "언제 바뀌었나" — 버전 이력·개정 표기 |
-| 판례·심판례 | `search_cases` | 대법원·고등법원·헌재·조세심판원 15.3만건. 단일 핵심 키워드가 정확하다 |
-| 유권해석 | `search_interpretations` | 국세청 13만·법제처 8.7천·행안부 3.3천건. **질의요지·회신 본문이 함께 온다** |
-| 조약 체결 현황 | `list_treaties` | 체결국 목록 / `country` 지정 시 그 나라 협약·의정서 이력과 부속문서 |
+| 조문 번호 찾기 | `search_articles` | **조문 본문 전문검색**. 키워드는 조사 없는 명사 2~4개("배우자 증여 양도 필요경비"). `law_name`으로 법령 한정, `limit` 8 이상으로 받아 **제목을 보고 고른다**(첫 건이 정답이 아닌 경우가 많다). 번호를 모를 때 `search_tax` 앞에 먼저 부른다 |
+| 조문 원문 | `get_article` | `law_name` + `article_number`("제97조의2"·"97조의2"·"97" 모두 가능, 약칭 "조특법"·"상증법"도 받는다). 위임 상·하위 조문, 별표, 그 조문을 인용한 판례·해석례 번호 목록, **그 조문의 시행예정 개정 표시**가 함께 온다. 응답이 수천 자로 가볍다. **세율·한도·요건 수치는 반드시 이 원문으로 확인** |
+| 조문 개정 연혁 | `get_article_history` | "언제 바뀌었나" — 버전별 시행일만 준다(무엇이 바뀌었는지는 `as_of`로 본문을 받아 견준다). 정식 법령명으로 부른다. "미검증" 표시가 붙은 버전은 그 날짜부터 그 본문이 적용됐다고 단정하는 근거로 쓰지 않는다 |
+| 별표·서식 | `get_annex` / `search_annexes` | 세율표·기준금액·분류표. 조문이 "별표 N에 따른다"고 하면 `get_annex(law_name, annex_number)`로 본문 확인. 번호를 모르면 `search_annexes` |
+| 시행예정 개정 | `list_upcoming` | 공포됐으나 시행 전인 개정과 달라지는 조문 목록. `law_name`으로 한정(시행령·시행규칙까지 함께 잡힌다). 목록이 길면 뒤가 잘리므로 **쟁점 조문은 `get_article`의 시행예정 표시로 한 번 더 확인**한다. 개정 내용 전문은 주지 않는다 |
+| 판례·결정례 | `search_cases` | 법원 판례 + 조세심판원 + 국세청 심사·이의·적부 결정례. 단일 핵심 키워드가 정확하다. 요지만 온다 |
+| 유권해석 | `search_interpretations` | 국세청·법제처·행안부 해석례. 쟁점 문장을 그대로 넣어도 되고, 문서번호를 넣으면 그 문서가 맨 앞에 온다. 질의요지·회신이 함께 온다 |
+| 인용 검증 | `verify_citations` | 본문에 적힌 조문·판례·문서번호가 실제로 있는지(조 단위 — 항·호와 부칙 조문은 검사하지 않는다). 옛 조문 번호는 현행 번호로 옮겨 알려 주고, 판례는 확인되는 경우 원심·상고심·환송 후 판결을 함께 보여 준다 |
+| 수록 법령 확인 | `list_laws` | 현행 세법 90개 법·령·칙과 시행일. 0건일 때 수록 여부 확인용 |
+| 조약 체결 현황 | `list_treaties` | 체결국 목록 / `country` 지정 시 그 나라 협약·의정서 이력 |
 | 조약 조문 검색 | `search_treaties` | 제한세율·고정사업장·사용료 등. `country`로 한정 가능 |
-| 조약 조문 원문 | `get_treaty_article` | 국문 + 영문. **그 조문을 개정한 의정서를 발췌까지 붙여 준다** |
+| 조약 조문 원문 | `get_treaty_article` | 국문 + 영문. **그 조문을 개정한 의정서 발췌까지** 붙여 준다 |
 
-### 2-B. korean-law (법제처 실시간 API)
+**조문을 못 찾을 때**: 낱말을 조문에 쓰일 법한 말로 바꿔 한 번 더 찾는다(구어 "3.3%"
+→ "원천징수 사업소득"). 그래도 없으면 `search_interpretations`에 쟁점 문장을 넣는다 —
+해석례 끝의 `[관련법령]`에 그 쟁점에 실제로 적용된 조문 번호가 적혀 있다. 그 번호를
+`get_article`로 확인한 뒤 출발 조문으로 쓴다.
+
+개별 도구의 검색 결과는 요지 발췌다. 채택할 문서의 **본문**이 필요하면 그 문서번호를
+`search_tax`의 `case`·`tribunal`·`ruling` 의도에 넣어 원문과 `evidence_id`를 받는다.
+
+### 2-C. 원문 이어 읽기 — `get_evidence`
+
+`search_tax` 결과의 `original_text.truncated`가 true면 `original_text.continuation`에
+든 인자 그대로 `get_evidence`를 부른다. `next_offset`이 없어질 때까지 반복하면 빠짐없이
+읽힌다.
+
+- `evidence_type`·`evidence_id`는 **`search_tax` 결과에 나온 값만** 넣는다. 사건번호나
+  "소득세법 제97조의2" 같은 표기는 받지 않는다.
+- `original_text.available_fields`에 다른 원문 칸이 있으면 `source_field`로 골라 읽는다 —
+  판례·결정례는 `case_holding`(요지)·`ruling_summary`(주문), 해석례는 `content`(질의요지 +
+  회신), 부칙은 `application_text`(적용례·경과조치만).
+- 과거 시점 조문은 `evidence_type: "article_version"`, `evidence_id`에 `as_of_lookup`의
+  `version_id`(예: `소득세법_097_2@20240101`)를 넣어 다시 읽을 수 있다.
+- 긴 결정례(수만 자)는 전부 읽지 않는다. 요지를 먼저 보고, 채택할 것만 판단 부분까지
+  읽어 필요한 대목을 발췌한다. `get_evidence` 응답에도 메타 칸이 수천 자 붙으니
+  `limit`(글자 수)을 필요한 만큼만 준다.
+
+### 2-D. 세법 밖 법령 — korean-law (보조)
+
+korea-tax-law는 세법만 수록한다(부동산실명법·상가건물 임대차보호법·금융실명법 등
+국세청 조세법령 목록의 관련 법령은 들어 있다 — `list_laws`로 확인). 민법·상법·
+근로기준법처럼 그 밖의 법령은 보조 MCP로 조회한다.
 
 | 무엇을 찾나 | 도구 | 사용법 |
 |---|---|---|
-| 별표·서식 | `get_annexes` | 기준금액·세율표는 별표에 있는 경우가 많다. **korea-tax-law에 없는 기능** |
-| 시행예정 개정 | `search_law` | 법령명 검색 시 시행예정본을 자동 병기. **korea-tax-law는 현행만 안다** |
-| 특정 시점 시행 본문 | `legal_analysis` mode=`applicable_law` | `lawName`+`date`(+`jo`) → 그 시점 본문 + 부칙 경과조치 |
-| 비세법·조례·행정규칙 | `search_law` → `get_law_text` | `mst`+`jo`. korea-tax-law는 세법 60개 밖은 0건이다 |
-| 판례 전문 | `get_decision_text` domain=`precedent` | 사건번호로 찾은 판례의 판시사항·판결요지 전문 |
-| 인용 검증 | `legal_analysis` mode=`verify_citations` | 작성한 답변의 조문·판례 인용이 실존하는지 교차검증 |
-| 복합 리서치 | `legal_research` | 단일 조회로 안 될 때만 |
+| 세법 밖 법령·조례·행정규칙 | `korean-law: search_law` → `korean-law: get_law_text` | 법령명으로 `mst`를 얻고 `mst`+`jo`("제1000조")로 조문 조회 |
+| 수록 범위 이전 시점의 조문 | `korean-law: legal_analysis` mode=`applicable_law` | `lawName`+`date`(+`jo`). `as_of_lookup.status`가 `before_data`일 때만 |
 
-**korean-law로 대체되지 않는 것** (착각하면 근거가 빈다):
-- 국세청 해석례 **본문** — `search_decisions(domain='nts')`는 목록·링크만 준다.
-  `get_decision_text`는 "법제처 OPEN API가 본문 조회를 제공하지 않는다"고 거부한다.
-- 조세조약 **조문 본문** — 조약 메타데이터와 law.go.kr 링크까지다.
-- 조문 본문 키워드 검색 — `search_law`는 **법령명**을 찾는다. "대손세액공제"로
-  검색하면 0건이 나온다.
+korean-law가 연결돼 있지 않으면 해당 근거는 `coverage_gaps`에 "세법 밖 법령 미확인"으로
+적고 넘어간다. 세법 조문·판례·해석례를 korean-law로 찾지 않는다.
 
 ### 2-1. 탐색 절차
 
 ```
-Step 1: search_intents.law의 각 조문
-        → korea-tax-law: get_article(law_name, article_number)
-          (조문 번호를 모르면 search_articles로 먼저 찾는다)
-Step 2: 위임 추적 — get_article 응답의 "위임 하위법령 조문"을 그대로 따라간다.
-        korea-tax-law가 이미 이어 주므로 별도 검색이 필요 없다
-Step 3: search_intents.ruling
-        → korea-tax-law: search_interpretations (본문까지 여기서 온다)
-Step 4: search_intents.case
-        → korea-tax-law: search_cases (판례·조세심판원이 한 도구에 함께 있다)
-          리딩케이스 전문이 필요하면 korean-law: get_decision_text로 보강
-Step 5: 비거주자·외국법인 쟁점이면
-        → korea-tax-law: list_treaties(country) → get_treaty_article
+Step 1: search_intents.law의 조문 번호가 불확실하면
+        → search_articles로 번호를 확정한다 (추측 금지)
+Step 2: 쟁점별 조문 줄기
+        → get_article로 출발 조문 본문 · 위임 조문 · 별표 · 인용 문서 번호 · 시행예정 표시를 본다
+        → search_tax (law 의도만, limit 1~2, timing.at_issue면 as_of 포함)로
+          summary.by_type과 as_of_lookup을 받는다
+        → 쟁점에 닿는 위임·참조 조문만 골라 get_article로 읽는다
+        → 조문에 이어진 판례·결정례·해석례는 offset으로 건너뛰거나 구간 훑기로 고른다
+Step 3: search_intents.ruling / case / tribunal
+        → 쟁점별로 search_tax (문서 의도만). 채택할 문서가 truncated면 get_evidence,
+          해석례는 회신(content)까지 읽는다
+        → 조문만으로 쟁점이 닫히면(sufficient_when 충족) 문서는 한 번만 확인하고 넘어간다
+Step 4: 조문이 별표로 위임했으면 → get_annex
+        (search_intents.annex가 있으면 search_annexes 또는 search_tax의 annex 의도)
+Step 5: timing.at_issue = true면 → §3-1-A (as_of)
+        내년 이후 과세기간·개정 예정이 걸리면 → list_upcoming
+Step 6: 비거주자·외국법인 쟁점 또는 search_intents.treaty
+        → list_treaties(country) → get_treaty_article
           국내법 조문과 조약 조문을 **함께** 확보한다 (조약이 우선한다)
-Step 6: search_intents.nontax_law
+Step 7: search_intents.nontax_law
         → korean-law: search_law → get_law_text
-Step 7: 세율·한도·기준금액이 별표 위임이면 → korean-law: get_annexes
 Step 8: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
 ```
 
-- 서로 독립인 검색(다른 법령, 다른 서버)은 **병렬로 호출**해 시간을 아낀다.
+- 서로 독립인 검색(다른 쟁점, 다른 유형)은 **병렬로 호출**해 시간을 아낀다.
 - 검색 결과가 0건이면 키워드를 한 단계 일반화해 1회 재시도한다. 그래도 없으면
   `coverage_gaps`에 기록하고 넘어간다 — 무한 재검색 금지.
-- korea-tax-law에서 0건이면 `list_laws`로 **수록 법령인지** 먼저 확인한다.
-  미수록 법령이면 korean-law로 넘어간다.
+- 조문이 0건이면 `list_laws`로 **수록 법령인지** 먼저 확인한다. 미수록 법령이면
+  korean-law로 넘어간다.
+- 호출 한도에 걸리면 응답의 `retry_after_seconds`만큼 기다렸다 다시 부른다.
 
 ### 2-2. 탐색 범위 제한 규칙
 
@@ -128,10 +269,11 @@ Step 8: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
 **검증 기준**: 조문의 **본문 내용**이 쟁점과 직접 관련되어야 한다. 조문 제목에 관련 단어가 있더라도 본문이 무관하면 제외한다.
 
 **원문 확보 기준**:
-- 법령 근거는 `korea-tax-law: get_article`(세법) 또는 `korean-law: get_law_text`(비세법)로
-  받은 적용 조항 원문을 `original_text`에 포함한다.
-- 기준금액·세율표가 "별표"로 위임되어 있으면 `korean-law: get_annexes`로 별표 본문까지
-  확인한다. korea-tax-law에는 별표가 없다.
+- 법령 근거는 `search_tax`·`get_article`(세법) 또는 `korean-law: get_law_text`(세법 밖)로
+  받은 적용 조항 원문을 `original_text`에 포함한다. 조문 시행일(`enforcement_date`)을
+  함께 적는다.
+- 기준금액·세율표가 "별표"로 위임되어 있으면 `get_annex`로 별표 본문까지 확인한다.
+  조문만 보고 수치를 적지 않는다.
 - 조문 원문을 확보하지 못한 법령은 high-confidence 근거로 반환하지 않고, `coverage_gaps`와 `missing_original_text`에 사유를 기록한다.
 
 ### 3-1-A. 적용시점 — 조건부
@@ -139,12 +281,41 @@ Step 8: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
 **조문에는 시행일이 적혀 있지 않다.** "언제부터 적용되는가"의 근거는 부칙(시행일·적용례·
 경과조치)에만 있다. Query Analysis의 `timing.at_issue` 게이트가 켜졌을 때만 조회한다.
 
-- `legal_analysis` mode=`applicable_law`에 `lawName` + `date`(= `timing.as_of`) +
-  `jo`를 넘기면 **그 시점에 시행 중이던 조문 본문과 부칙 경과조치**를 준다.
-  이것이 1차 경로다.
-- 특정 시행일자 본문만 필요하면 `korean-law: get_law_text`의 `efYd`(YYYYMMDD)로도 조회할
-  수 있다. korea-tax-law는 현행 본문만 주고, 과거 변화는 `get_article_history`로
-  "언제 바뀌었는지"까지만 알려준다 — 그 시점 본문 자체는 korean-law로 확인한다.
+- `search_tax`에 `as_of`(= `timing.as_of`)를 주면, 결과의 조문마다 `as_of_lookup`이
+  붙는다. 현행 조문과 **별도로** 조회한 그 시점 버전이다.
+
+  | `as_of_lookup` | 뜻 |
+  |---|---|
+  | `status: found` | 그 시점에 시행 중이던 버전을 찾았다. `version.valid_from`~`valid_to`가 그 버전의 시행 구간, `as_of_lookup.original_text.text`가 **당시 본문**, `version.applies_note`·`applies_source`가 그 버전에 붙은 부칙 적용례·경과조치 |
+  | `status: before_data` | 수록 범위 이전이다(`coverage_from`이 범위 시작일 — 조문마다 다르고 대략 2015년). 이 서버로는 확인할 수 없다 |
+  | 그 밖 (`unverified` 등) | 당시 버전을 특정·검증하지 못했다. 확인된 것으로 치지 않는다 |
+
+- `found`면 그 본문으로 판단하고, 근거의 `title`에 "(YYYY-MM-DD 당시 시행본)"을 붙여
+  현행 조문과 구별한다. 현행 본문과 달라진 대목이 있으면 `possible_mismatch`에 적는다.
+- **`found`로 끝내지 않는다 — 적용례를 사실관계와 대조한다.** 버전의 시행 구간은
+  "그날 시행 중이던 글"일 뿐이고, 그 글이 이 거래에 적용되는지는 부칙이 정한다.
+  부칙의 기준 사건이 양도일이 아니라 **증여일·취득일·사업연도 개시일**인 경우가 많다
+  ("이 법 시행 이후 증여받는 자산부터 적용한다"). 기준일 앞뒤로 쟁점 대목이 개정됐으면
+  (당시 본문과 현행 본문이 다르거나, 직전 버전과 다르면) 그 개정의 부칙을 읽어
+  개정 규정이 사안에 미치는지 확인한다.
+  - `applies_note`는 그 버전에 붙은 적용례인데, 쟁점 개정의 것이 아닐 수 있다.
+    공포번호·공포일(`applies_source`)로 어느 개정의 부칙인지 확인한다.
+  - 개정별 부칙은 결과 맨 끝의 `applicability_evidence` 구간에 있다
+    (`offset` = `total_results − applicability_evidence`, 공포번호순이라 최근 것이 뒤).
+    해당 조만 읽으려면 `get_evidence(evidence_type: "amendment", …, source_field: "application_text")`.
+  - 질문에 사건일이 여럿이면(증여일과 양도일, 취득일과 양도일) Query Analysis가
+    `timing.reason`에 적어 준다. 버전 경계가 그 사이에 있으면 각 날짜로 조회한다.
+- `before_data`면 `korean-law: legal_analysis` mode=`applicable_law`(`lawName`+`date`+`jo`)로
+  한 번 시도한다. korean-law가 없거나 거기서도 못 찾으면 "확인 불가"다.
+- `as_of`는 조문 버전만 바꿔 준다. 함께 온 판례·해석례는 **현행 그래프 기준**으로
+  이어진 것이므로, 그 문서가 기준일 당시 조문에 대한 것인지는 문서 날짜로 따로 본다.
+- 결과의 `applicability_evidence`(부칙 적용근거)는 개정 조문의 적용례·경과조치다.
+  기준일이 개정 시행일 근처면 반드시 읽는다.
+- "언제 바뀌었는지"만 필요하면 `get_article_history`로 충분하다.
+- **미래 시점**(내년 귀속, 시행 예정 개정 — `timing.as_of`가 비어 있고 `reason`이
+  시행예정 확인을 말하는 경우)은 `as_of` 없이 `list_upcoming(law_name)`으로 확인한다.
+  달라지는 조문 목록에 쟁점 조문이 있으면 시행일과 함께 근거에 적는다. 현행 조문만
+  보고 "앞으로도 같다"고 답하지 않는다.
 
 **매번 돌리지 않는다.** 부칙은 조문 대비 40~60% 분량이라 무조건 끌어오면 근거 예산을
 잠식하고, 30년 전 적용례가 현행 근거로 딸려온다. 게이트 기준은 `query-analysis.md` §5.
@@ -161,15 +332,20 @@ Step 8: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
 3. 기획재정부 유권해석 > 국세청 예규 > 조세심판원 결정례 (위계 반영)
 
 **필수 확인 사항**:
-- 문서번호(서면-○○○○, 사전-○○○○, 소득세과-○○○○ 등) 특정
-- 발행 연도 확인 (법령 개정으로 실효된 해석 표시)
+- 문서번호(서면-○○○○, 사전-○○○○, 소득세과-○○○○ 등) 특정 — `source.interp_number`를
+  그대로 쓴다. 번호를 고쳐 적거나 줄이지 않는다
+- 발행 연도 확인 (법령 개정으로 실효된 해석 표시) — `reply_date`와 조문 `enforcement_date` 비교
 - 사실관계 차이점(possible_mismatch) 반드시 기재
+
+해석례는 `search_tax`의 `ruling` 의도로 찾는다(예규·고시 같은 행정규칙과 해석례가 함께
+온다). 조문에 `HAS_INTERPRETATION`으로 이어진 해석례가 그 조문을 직접 해석한 것이고,
+전문검색 히트는 본문을 읽어 사실관계가 맞는지 확인한 뒤 채택한다.
 
 ### 3-3. 판례(case)
 
 **검색 우선순위**:
 1. 대법원 판례 (확립된 판단기준 제시)
-2. 조세심판원 결정례 (구체적 사실관계 판단)
+2. 조세심판원 결정례, 국세청 심사·이의·과세전적부심사 결정례 (구체적 사실관계 판단)
 3. 하급심 판례 (참고용)
 
 **핵심 추출 요소**:
@@ -177,16 +353,21 @@ Step 8: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
 - 해당 사안에서의 **구체적 적용 결과**
 - **사실관계 요약** (사용자 사안과의 비교 가능하도록)
 
-판례 검색은 `korea-tax-law: search_cases`가 1차다 — 판례·조세심판원 결정례가 한 도구에
-있고 요지가 함께 온다. 리딩케이스로 인용할 판례는 전문까지 필요하면
-`korean-law: get_decision_text`(domain=`precedent`)로 판시사항·판결요지를 확인한다.
-검색 목록의 제목만 보고 인용하지 않는다.
+법원 판례는 `search_tax`의 `case` 의도, 조세심판원·국세청 결정례는 `tribunal` 의도로
+찾는다. 원문이 함께 오고, 길면 `get_evidence`로 이어 읽는다. `search_cases`는 요지만
+주므로 후보를 훑을 때 쓰고, **검색 목록의 제목·요지만 보고 인용하지 않는다.**
+
+리딩케이스로 인용할 판례는 **그 뒤 결과**까지 확인한다. 사건번호를 `verify_citations`에
+넣으면 `history`로 주문·원심·상고심·파기환송 후 판결이 온다. 파기환송 판결은 최종
+결과가 아니고, 하급심 판결은 상급심에서 뒤집혔을 수 있다 — 확인한 내용을
+`possible_mismatch`에 적는다. (`history`가 없다고 상급심이 없다는 뜻은 아니다.)
 
 ### 3-4. 비세법 법령(nontax_law)
 
-세무 쟁점의 전제가 되는 비세법 법령(민법, 상법, 근로기준법, 부동산실명법,
-주택임대차보호법 등)도 같은 도구로 조회한다. 결과에는 `source_type: "nontax_law"`로
-구분 표시한다. 대표 트리거:
+세무 쟁점의 전제가 되는 세법 밖 법령(민법, 상법, 근로기준법, 주택임대차보호법 등)은
+`korean-law: search_law` → `get_law_text`로 조회한다(§2-D). 부동산실명법·상가건물
+임대차보호법처럼 korea-tax-law에 수록된 관련 법령은 `get_article`로 바로 읽는다.
+결과에는 `source_type: "nontax_law"`로 구분 표시한다. 대표 트리거:
 
 | 트리거 | 조회 대상 법령 |
 |--------|---------------|
@@ -215,17 +396,38 @@ Step 8: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
   "key_content": "근로소득은 해당 과세기간에 발생한 다음 각 호의 소득으로 한다. 1. 근로를 제공함으로써 받는 봉급·급료·보수·세비·임금·상여·수당과 이와 유사한 성질의 급여",
   "original_text": "제20조(근로소득) ① 근로소득은 해당 과세기간에 발생한 다음 각 호의 소득으로 한다. ...",
   "original_text_scope": "full_article",
+  "as_of_date": "20260701",
+  "retrieval": "graph",
+  "evidence_ref": { "evidence_type": "article", "evidence_id": "소득세법_020" },
   "possible_mismatch": "",
   "source_url": "https://www.law.go.kr/법령/소득세법/제20조",
-  "search_path": "korea-tax-law: search_articles('근로소득 범위') → get_article('소득세법', '제20조')"
+  "search_path": "search_tax(law: '소득세법 제20조') → seed_articles"
 }
 ```
 
 - `id` 규칙: `law-법령명-조문번호`, `ruling-문서번호`, `case-법원-사건번호`,
-  `nontax-법령명-조문번호`. Answer Generation이 이 id로 인용한다.
-- `source_url`: 법령은 `https://www.law.go.kr/법령/<법령명>/<제N조>`, 판례는
-  `https://www.law.go.kr/판례/<사건번호>` 형식. 확실하지 않으면 비워 둔다 —
-  틀린 링크보다 없는 링크가 낫다.
+  `tribunal-결정번호`, `treaty-국가-조문번호`, `annex-법령명-별표번호`,
+  `amendment-법령명-공포번호-조`(부칙), `nontax-법령명-조문번호`. Answer Generation이
+  이 id로 인용한다.
+- `source_type`: `law` · `ruling`(예규·해석례) · `case`(법원 판례·헌재 결정) ·
+  `tribunal`(조세심판원·국세청·감사원 결정례) · `treaty` · `annex` · `amendment`(부칙
+  적용례·경과조치 — `by_type`에서는 law에 센다) · `nontax_law`. 응답의 `result_group`으로 정한다.
+- `as_of_date`: 조문은 시행일(`enforcement_date`), 문서는 회신일·선고일·결정일.
+  적용시점 조회로 얻은 과거 버전이면 그 버전의 `valid_from`을 적고 `title`에
+  "(YYYY-MM-DD 당시 시행본)"을 붙인다.
+- `retrieval`: `graph`(조문과 검증된 관계로 이어짐) / `fulltext`(전문검색 히트) /
+  `direct`(`get_article`·`get_annex` 등 직접 조회). `search_path`에는 `graph_paths`의
+  관계를 그대로 옮긴다 (예: `소득세법 제97조의2 → DELEGATES_TO → 시행령 제163조의2 → HAS_INTERPRETATION`).
+- `evidence_ref`: `search_tax`가 준 `evidence_type`·`evidence_id`. 뒤 단계가 원문을
+  다시 읽을 때 쓴다. 직접 조회 도구로 얻은 근거는 생략한다. 과거 시행본은
+  `{"evidence_type": "article_version", "evidence_id": "<version_id>"}`를 넣고,
+  `original_text`에는 **당시 본문만** 담는다.
+- `original_text_scope`: `full_article` / `excerpt`(긴 문서에서 판단 부분만 발췌) /
+  `summary_only`(DB에 요지만 있음 — high-confidence 금지).
+- `source_url`: 응답의 `case_url`·`interp_url`·`ruling_url`·`source_url`을 그대로 쓴다.
+  현행 법령 조문은 `https://www.law.go.kr/법령/<법령명>/<제N조>` 형식으로 적는다
+  (조문 응답에는 링크가 없다). 과거 시행본·부칙은 비워 둔다. 응답에 없고
+  확실하지 않으면 비워 둔다 — 틀린 링크보다 없는 링크가 낫다.
 
 ### 4-2. 전체 출력 형식
 
@@ -233,7 +435,7 @@ Step 8: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
 {
   "search_summary": {
     "total_found": 12,
-    "by_type": { "law": 5, "ruling": 4, "case": 3 },
+    "by_type": { "law": 5, "ruling": 4, "case": 2, "tribunal": 1 },
     "issue_coverage": {
       "issue-1": { "law": 2, "ruling": 1, "case": 2, "status": "충분" },
       "issue-2": { "law": 1, "ruling": 0, "case": 0, "status": "보충필요" }
@@ -274,7 +476,16 @@ Step 8: 각 결과를 issue_id에 매핑하고, 매핑 불가 결과 제거
 - [ ] issue_coverage에서 "보충필요" 상태인 쟁점이 있다면 coverage_gaps에 명시했는가?
 - [ ] 절차·행정 조문(납세지, 과세관할, 세액계산 순서 등)이 혼입되지 않았는가?
 - [ ] 예규·해석은 문서번호가 특정되어 있는가? (단순히 "국세청 예규"만 적지 않았는가?)
-- [ ] 판례는 사건번호와 판단기준 핵심 문장이 포함되어 있는가? 전문을 실제로 확인했는가?
-- [ ] `timing.at_issue`가 켜졌다면 applicable_law로 기준일 당시 본문·부칙을 확인했는가?
+      번호는 응답에 나온 그대로인가?
+- [ ] 판례는 사건번호와 판단기준 핵심 문장이 포함되어 있는가? 원문을 실제로 확인했는가?
+      리딩케이스는 그 뒤 상급심·환송 후 결과를 확인했는가?
+- [ ] 전문검색 히트(`fulltext`)를 본문 확인 없이 채택하지 않았는가? 요지뿐인 자료에
+      high를 주지 않았는가?
+- [ ] 세율·한도·기준금액은 조문·별표 원문에서 읽은 숫자인가?
+- [ ] `timing.at_issue`가 켜졌다면 `as_of`로 기준일 당시 본문·부칙 적용례를 확인했는가?
+      쟁점 대목이 기준일 앞뒤로 개정됐다면 그 개정 부칙의 적용 기준(양도일·증여일·
+      취득일)을 사실관계와 대조했는가?
+- [ ] 채택한 해석례는 회신까지 읽었는가?
 - [ ] 기준일 당시 본문을 확보하지 못했는데 현행 조문으로 답하고 있지 않은가?
-- [ ] 법령 조문은 현행법 기준인가? (개정 여부 확인)
+- [ ] 내년 이후 과세기간이 걸렸다면 `list_upcoming`으로 시행예정 개정을 확인했는가?
+- [ ] 법령 조문에 시행일을 적었는가?
