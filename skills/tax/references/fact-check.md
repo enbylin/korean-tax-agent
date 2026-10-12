@@ -21,7 +21,9 @@
 
 `from_query_analysis`(issue_tree, hypotheses)와 `from_source_search`(search_summary,
 results)를 받는다. 검색 결과의 각 근거는 `{id, source_type, issue_ids, confidence,
-why_relevant, key_content, original_text}` 형태다.
+why_relevant, key_content, original_text, as_of_date, retrieval, evidence_ref,
+possible_mismatch}` 형태다. `retrieval`이 `graph`면 조문과 검증된 인용 관계로 이어진
+자료, `fulltext`면 검색어가 본문에 있었을 뿐인 자료다.
 
 ## 3. 분석 절차
 
@@ -32,9 +34,16 @@ why_relevant, key_content, original_text}` 형태다.
    (사실관계 차이·법령 개정·해석 차이)까지 분석.
 4. **논리 비약 점검**: "정의 조문이 있다 → 따라서 이 사안은 ~이다" 같은 중간 논증
    누락을 note에 명시.
-5. **인용 실존 검증 (선택적)**: 검색 결과에 원문 없이 제목·번호만 있는 조문·판례가
-   섞여 있으면 korean-law-mcp의 `legal_analysis` mode=`verify_citations`로 실존
-   여부를 교차검증한다. 실존이 확인되지 않은 근거는 strength를 낮추고 note에 기록한다.
+5. **인용 실존·시점 검증**: 채택된 근거의 조문·판례·문서번호를 한 덩어리 텍스트로
+   모아 택스닥터 세법 MCP의 `verify_citations`(도구 이름이 그렇게 끝나는 것)에 한 번
+   넣는다. 번호가 실제로 있는지만 보는 도구다 — 내용 일치는 `original_text`로 직접 본다.
+   - `not_found`·`title_check: mismatch` → 그 근거의 strength를 낮추고 note에 기록
+   - `current_number`·`moved_hint` → 옛 번호이거나 최근 번호가 옮겨진 조문. note에 현행 번호 병기
+   - 판례 `history`에 파기환송·상급심 변경이 있으면 what_conflicts 또는 note에 반영
+     (파기환송 판결은 최종 결과가 아니다)
+   - `unchecked`(세법 밖 법령, 법령명 생략)는 통과가 아니다. 검증 못 한 것으로 둔다
+   - 문서 날짜(`as_of_date`)가 조문 시행일보다 한참 앞서면 그 뒤 개정으로 실효됐을
+     가능성을 note에 적는다
 6. **공백 분석 → 보충 요청**: 근거 0개이거나 low-confidence뿐인 쟁점을 식별하고
    `supplement_search`에 구체적 검색 키워드로 요청한다.
 
@@ -94,14 +103,14 @@ JSON만 반환한다:
 
 ## 5. 판단 예시 (프리랜서 3.3% 재분류 검증에서 발췌)
 
-좋은 검증이 내리는 판단의 결:
+좋은 검증이 내리는 판단의 결 (판례 번호는 id 형식을 보이기 위한 것이다):
 
 ```json
 {
   "what_supports": [{
     "issue_id": "issue-1",
     "claim": "소득 구분은 사용종속관계 유무에 따라 판단",
-    "evidence_ids": ["law-소득세법-20", "law-소득세법시행령-47", "case-대법원-2006두9218"],
+    "evidence_ids": ["law-소득세법-20", "law-소득세법시행령-38", "case-대법원-2006두9218"],
     "strength": "strong",
     "note": "법령(정의) + 시행령(기준) + 판례(판단요소)가 일관된 법리를 형성"
   }],
