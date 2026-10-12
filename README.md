@@ -132,7 +132,7 @@ https://mcp.taxdoctorai.com/mcp
 
 | 도구 | 스킬에서의 용도 |
 |---|---|
-| `search_tax` | **쟁점별 통합 탐색** — 출발 조문에서 위임·인용을 따라 판례·결정례·해석례·별표·부칙 적용근거를 모으고, 결과마다 실제 경로·원문·시점을 반환. `as_of`로 과거 시점 조문 조회 |
+| `search_tax` | **쟁점별 통합 탐색** — 출발 조문에서 위임·인용을 따라 판례·결정례·해석례·별표·부칙 적용근거를 모으고, 결과마다 실제 경로·원문·시점을 반환. `detail: "list"`로 목록부터, `as_of`로 과거 시점 조문 조회 |
 | `get_evidence` | 긴 원문 이어 읽기 |
 | `search_articles` / `get_article` | 조문 번호 찾기 · 조문 원문 + 위임 조문 + 별표 + 인용 문서 목록 |
 | `get_article_history` | 조문 개정 연혁 |
@@ -159,7 +159,7 @@ https://mcp.taxdoctorai.com/mcp
 
 ## 버전
 
-- **v2.0.0** — 택스닥터 세법 MCP(`mcp.taxdoctorai.com`) 중심으로 전환. 통합 그래프 탐색
+- **v2.0.0** — 택스닥터 세법 MCP(`mcp.taxdoctorai.com`, v0.13.0 이상) 중심으로 전환. 통합 그래프 탐색
   (`search_tax`), 별표·시행예정 개정·과거 시점 조문, 답변 인용 검증 추가. 검색 의도에
   심판·결정례(`tribunal`)·조세조약(`treaty`)·별표(`annex`) 유형 추가. korean-law는 세법 밖
   법령 전용 보조로 축소
